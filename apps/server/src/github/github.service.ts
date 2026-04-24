@@ -5,6 +5,7 @@ import { GITHUB_HEADER_TYPE } from '../constant/githubHeaderType';
 import { Octokit } from 'octokit';
 import 'dotenv/config';
 import { parseDiff } from '../langchain/parseDiff';
+import { runCodeReview } from '../langchain/review';
 
 @Injectable()
 export class GithubService {
@@ -36,7 +37,36 @@ export class GithubService {
 
         const diff = diffResponse.data as unknown as string;
         console.log('PR diff 获取成功，长度:', diff.length);
-        return { data: parseDiff(diff) };
+
+        // 调用 AI Code Review，传入完整的 ReviewInput
+        return {
+          data: await runCodeReview({
+            fileDiffs: parseDiff(diff),
+            aiSettings: {
+              provider: (process.env.AI_PROVIDER as any) ?? 'deepseek',
+              apiKey: process.env.AI_API_KEY,
+              model: process.env.AI_MODEL ?? 'deepseek-chat',
+              baseUrl: process.env.AI_BASE_URL ?? 'https://api.deepseek.com',
+              temperature: 0.2,
+              maxTokens: 4096,
+            },
+            // 传入 GitHub 上下文，用于拉取完整文件内容作为 LLM 背景信息
+            githubContext: {
+              octokit: this.octokit,
+              owner,
+              repo,
+              ref: pull_request.head.sha,
+            },
+            // 传入 PR 元数据，帮助 LLM 理解变更意图
+            prInfo: {
+              title: pull_request.title,
+              description: pull_request.body ?? '',
+              author: pull_request.user.login,
+              sourceBranch: pull_request.head.ref,
+              targetBranch: pull_request.base.ref,
+            },
+          }),
+        };
       } catch (error) {
         // 打印完整错误信息便于排查（status / message / request URL）
         console.error('获取 PR diff 失败:', {
