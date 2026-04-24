@@ -1,0 +1,224 @@
+// Prisma schema for AI Code Review Platform（单实例自托管，无多用户概念）
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs" // 模块格式
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────
+// 全局 GitHub 配置（全站唯一一条，id=1）
+// 对应 settings 页面 → GitHub Configuration
+// ─────────────────────────────────────────────
+model GithubSettings {
+  id Int @id @default(autoincrement())
+
+  // Personal Access Token（存储时应加密）
+  token         String
+  // Webhook 回调密钥
+  webhookSecret String?
+  // 默认目标分支
+  defaultBranch String  @default("main")
+  // 忽略路径（glob 规则，换行分隔）
+  ignoredPaths  String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// AI 模型提供商枚举
+// ─────────────────────────────────────────────
+enum AiProvider {
+  openai
+  anthropic
+  deepseek
+  custom
+}
+
+// ─────────────────────────────────────────────
+// 全局 AI 模型配置（全站唯一一条，id=1）
+// 对应 settings 页面 → AI Model Configuration
+// ─────────────────────────────────────────────
+model AiSettings {
+  id Int @id @default(autoincrement())
+
+  provider     AiProvider @default(anthropic)
+  // API Key
+  apiKey       String?
+  // 模型名称，如 claude-sonnet-4-6
+  model        String     @default("claude-sonnet-4-6")
+  // 自定义提供商的接入地址
+  baseUrl      String?
+  // 生成温度，范围 0.0-2.0
+  temperature  Float      @default(0.2)
+  // 最大 token 数，范围 256-32768
+  maxTokens    Int        @default(4096)
+  // 系统提示词
+  systemPrompt String?    @db.Text
+  // 自定义提供商名称
+  customName   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// 全局通知配置（全站唯一一条，id=1）
+// 对应 settings 页面 → Notification Settings
+// ─────────────────────────────────────────────
+model NotificationSettings {
+  id Int @id @default(autoincrement())
+
+  emailEnabled Boolean @default(false)
+  email        String?
+
+  // 各事件的通知开关
+  onReviewPassed Boolean @default(true) // PR 质量达标
+  onReviewFailed Boolean @default(true) // PR 存在严重问题
+  onReviewError  Boolean @default(true) // AI/GitHub API 调用失败
+  onNewPending   Boolean @default(false) // 新 PR 进入待审队列
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// 接入的仓库
+// 对应侧边栏 → Repository Management
+// ─────────────────────────────────────────────
+model Repository {
+  id Int @id @default(autoincrement())
+
+  name     String // 仓库名，如 my-repo
+  owner    String // 组织或用户名，如 acme-corp
+  fullName String @unique // owner/name，如 acme-corp/my-repo
+  url      String // HTML 访问地址
+  platform String @default("github") // github | gitlab
+
+  // 平台侧的 webhook id，用于注销时调用删除接口
+  webhookId String?
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  pullRequests PullRequest[]
+}
+
+// ─────────────────────────────────────────────
+// PR 审查状态枚举
+// ─────────────────────────────────────────────
+enum ReviewStatus {
+  pending // 待审查
+  reviewing // 审查中
+  passed // 通过
+  rejected // 拒绝
+  error // 出错
+}
+
+// ─────────────────────────────────────────────
+// 触发来源枚举
+// 对应 home 页面 Review Trigger Sources 图表
+// ─────────────────────────────────────────────
+enum TriggerSource {
+  github_webhook // GitHub Webhook 自动触发
+  gitlab_ci // GitLab CI 触发
+  manual // 页面手动触发
+  api // 外部 API 调用
+}
+
+// ─────────────────────────────────────────────
+// 拉取请求
+// 对应 /review/pending、/review/done 页面
+// ─────────────────────────────────────────────
+model PullRequest {
+  id           Int        @id @default(autoincrement())
+  repositoryId Int
+  repository   Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  // PR 基本信息
+  prNumber     Int // 平台侧的 PR 编号
+  title        String
+  author       String // PR 作者的平台用户名
+  sourceBranch String // 功能分支
+  targetBranch String // 目标分支（如 main）
+  prUrl        String? // PR 的 HTML 地址
+
+  // 审查结果
+  status        ReviewStatus  @default(pending)
+  score         Int? // 综合评分 0-100
+  triggerSource TriggerSource @default(github_webhook)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reviews Review[]
+
+  // 同一仓库内 PR 编号唯一
+  @@unique([repositoryId, prNumber])
+}
+
+// ─────────────────────────────────────────────
+// 仪表盘统计快照（全站唯一一条，id=1）
+// 由后台任务定期聚合写入，避免每次实时全表扫描
+// 对应 home 页面所有统计卡片和图表
+// ─────────────────────────────────────────────
+model DashboardSnapshot {
+  id Int @id @default(autoincrement())
+
+  // ── 6 个统计卡片 ──
+  totalReviews   Int   @default(0) // 累计 PR 审查总数
+  monthlyReviews Int   @default(0) // 本月已完成审查数
+  passRate       Float @default(0) // 通过率，0–100
+  avgScore       Float @default(0) // 所有 PR 平均得分，0–100
+  pendingCount   Int   @default(0) // 当前待处理 PR 数
+  repoCount      Int   @default(0) // 已接入的活跃仓库数
+
+  // ── 质量分布图 ──
+  scoreExcellent Int @default(0) // 优秀：90–100
+  scoreGood      Int @default(0) // 良好：75–89
+  scoreFair      Int @default(0) // 一般：60–74
+  scorePoor      Int @default(0) // 较差：< 60
+
+  // ── 触发来源图 ──
+  triggerWebhook  Int @default(0) // GitHub Webhook
+  triggerGitlabCi Int @default(0) // GitLab CI
+  triggerManual   Int @default(0) // 手动触发
+  triggerApi      Int @default(0) // API 调用
+
+  // 快照生成时间，前端可据此显示"数据截至 XX"
+  snapshotAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// AI 审查结果详情
+// 同一 PR 支持重新审查，保留历史记录
+// ─────────────────────────────────────────────
+model Review {
+  id            Int         @id @default(autoincrement())
+  pullRequestId Int
+  pullRequest   PullRequest @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
+
+  // 本次使用的 AI 信息（冗余存储，防止配置变更后历史丢失）
+  aiProvider String
+  aiModel    String
+
+  // 审查内容（Markdown 格式）
+  content String       @db.Text
+  // 本次评分 0-100
+  score   Int?
+  status  ReviewStatus
+
+  // 出错时的错误信息
+  errorMessage String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
