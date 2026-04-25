@@ -6,79 +6,122 @@ import { Octokit } from 'octokit';
 import 'dotenv/config';
 import { parseDiff } from '../langchain/parseDiff';
 import { runCodeReview } from '../langchain/review';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class GithubService {
+  constructor(private readonly prisma: PrismaService) {}
   // 初始化 Octokit 实例，使用环境变量中的 GitHub Token 进行鉴权
   private readonly octokit = new Octokit({
     auth: process.env.GITHUB_TOKEN,
   });
+  aiSettingsRepository: any;
 
   async create(createGithubDto: any, headers: Record<string, string>) {
-    console.log(headers['x-github-event']);
-    if (GITHUB_HEADER_TYPE.includes(headers['x-github-event'])) {
-      const { repository, pull_request } = createGithubDto;
-      const owner = repository.owner.login;
-      const repo = repository.name;
-      const pull_number = pull_request.number;
+    if (!GITHUB_HEADER_TYPE.includes(headers['x-github-event'])) {
+      return { data: '处理' };
+    }
 
-      // 打印请求参数，方便排查 404 时确认值是否正确
-      // console.log('请求 PR diff 参数:', { owner, repo, pull_number });
-      // console.log('GITHUB_TOKEN 是否已设置:', !!process.env.GITHUB_TOKEN);
+    const { action, pull_request, repository } = createGithubDto;
 
-      try {
-        // 使用 mediaType.format='diff' 让 octokit 正确处理 diff 格式响应
-        const diffResponse = await this.octokit.rest.pulls.get({
+    // 2. 核心判断：只有在“新建 PR”或“更新代码”时才运行 AI Review
+    // opened: 刚创建
+    // synchronize: 开发者又 push 了新代码到该 PR
+    if (action !== 'opened' && action !== 'synchronize') {
+      return { data: `Action 是 ${action}，无需 Review` };
+    }
+
+    // 3. 再次确认状态必须是 open
+    if (pull_request.state !== 'open') {
+      return { data: 'PR 已关闭，跳过' };
+    }
+    const owner = repository.owner.login;
+    const repo = repository.name;
+
+    try {
+      const diff = await this.getPrDiff(owner, repo, pull_request.number);
+      const aiSettings = await this.getAiSettings();
+      const result = await runCodeReview({
+        fileDiffs: parseDiff(diff),
+        aiSettings,
+        githubContext: {
+          octokit: this.octokit,
           owner,
           repo,
-          pull_number,
-          mediaType: { format: 'diff' },
-        });
+          ref: pull_request.head.sha,
+        },
+        prInfo: {
+          title: pull_request.title,
+          description: pull_request.body ?? '',
+          author: pull_request.user.login,
+          sourceBranch: pull_request.head.ref,
+          targetBranch: pull_request.base.ref,
+        },
+      });
 
-        const diff = diffResponse.data as unknown as string;
-        console.log('PR diff 获取成功，长度:', diff.length);
+      // 将 AI review 报告作为评论发布到 PR
+      await this.postPrComment(
+        owner,
+        repo,
+        pull_request.number,
+        result.content,
+      );
 
-        // 调用 AI Code Review，传入完整的 ReviewInput
-        return {
-          data: await runCodeReview({
-            fileDiffs: parseDiff(diff),
-            aiSettings: {
-              provider: (process.env.AI_PROVIDER as any) ?? 'deepseek',
-              apiKey: process.env.AI_API_KEY,
-              model: process.env.AI_MODEL ?? 'deepseek-chat',
-              baseUrl: process.env.AI_BASE_URL ?? 'https://api.deepseek.com',
-              temperature: 0.2,
-              maxTokens: 4096,
-            },
-            // 传入 GitHub 上下文，用于拉取完整文件内容作为 LLM 背景信息
-            githubContext: {
-              octokit: this.octokit,
-              owner,
-              repo,
-              ref: pull_request.head.sha,
-            },
-            // 传入 PR 元数据，帮助 LLM 理解变更意图
-            prInfo: {
-              title: pull_request.title,
-              description: pull_request.body ?? '',
-              author: pull_request.user.login,
-              sourceBranch: pull_request.head.ref,
-              targetBranch: pull_request.base.ref,
-            },
-          }),
-        };
-      } catch (error) {
-        // 打印完整错误信息便于排查（status / message / request URL）
-        console.error('获取 PR diff 失败:', {
-          status: error.status,
-          message: error.message,
-          url: error.request?.url,
-        });
-        throw error;
-      }
+      return { data: result };
+    } catch (error) {
+      console.error('获取 PR diff 失败:', {
+        status: error.status,
+        message: error.message,
+        url: error.request?.url,
+      });
+      throw error;
     }
-    // 我需要处理的事件类型
-    return { data: '处理' };
+  }
+
+  // 获取 PR 的 diff 文本
+  private async getPrDiff(
+    owner: string,
+    repo: string,
+    pull_number: number,
+  ): Promise<string> {
+    const diffResponse = await this.octokit.rest.pulls.get({
+      owner,
+      repo,
+      pull_number,
+      mediaType: { format: 'diff' },
+    });
+    const diff = diffResponse.data as unknown as string;
+    console.log('PR diff 获取成功，长度:', diff.length);
+    return diff;
+  }
+
+  // 将评论内容发布到指定 PR（issue_number 与 pull_number 相同）
+  private async postPrComment(
+    owner: string,
+    repo: string,
+    issue_number: number,
+    body: string,
+  ): Promise<void> {
+    await this.octokit.rest.issues.createComment({
+      owner,
+      repo,
+      issue_number,
+      body,
+    });
+  }
+
+  // 读取数据库中的 AI 配置，缺失字段使用默认值兜底
+  private async getAiSettings() {
+    const record = await this.prisma.aiSettings.findFirst().catch(() => null);
+    return {
+      provider: record?.provider ?? 'deepseek',
+      apiKey: record?.apiKey ?? process.env.AI_API_KEY,
+      model: record?.model ?? 'deepseek-chat',
+      baseUrl: record?.baseUrl ?? 'https://api.deepseek.com',
+      temperature: record?.temperature ?? 0.2,
+      maxTokens: record?.maxTokens ?? 4096,
+      systemPrompt: record?.systemPrompt ?? '',
+    };
   }
 
   findAll() {

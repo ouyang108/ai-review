@@ -24,7 +24,7 @@ export class CreateAiSettingDto {
   // API Key，敏感字段，存储时应加密
   @IsOptional()
   @IsString()
-  apiKey?: string;
+  apiKey: string;
 
   // 模型名称，如 claude-sonnet-4-6，必填
   @IsString()

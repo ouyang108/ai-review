@@ -2,14 +2,13 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAiSettingDto } from './dto/create-ai-setting.dto';
 import { UpdateAiSettingDto } from './dto/update-ai-setting.dto';
-
+import { AI_MESSAGE } from '../constant/aiMessage';
 @Injectable()
 export class AiSettingService {
   constructor(private readonly prisma: PrismaService) {}
 
   // 新增一条 AI 配置
   async create(createAiSettingDto: CreateAiSettingDto) {
-    console.log(JSON.stringify(createAiSettingDto));
     return await this.prisma.aiSettings.create({
       data: createAiSettingDto,
     });
@@ -25,7 +24,10 @@ export class AiSettingService {
   // 按 id 更新 AI 配置，不存在则抛 404
   async update(id: number, updateAiSettingDto: UpdateAiSettingDto) {
     // 先确认记录存在，不存在时 findOne 内部会抛 404
-
+    const { provider } = updateAiSettingDto;
+    if (provider && AI_MESSAGE[provider]) {
+      updateAiSettingDto.baseUrl = AI_MESSAGE[provider];
+    }
     await this.findOne();
     return await this.prisma.aiSettings.update({
       where: { id },

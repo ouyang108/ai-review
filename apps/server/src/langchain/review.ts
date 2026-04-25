@@ -393,7 +393,7 @@ async function reviewEachFileNode(
   customSystemPrompt?: string | null,
 ): Promise<Partial<ReviewState>> {
   const fileReviews: FileReviewResult[] = [];
-  const systemPrompt = customSystemPrompt?.trim() || FILE_REVIEW_SYSTEM_PROMPT;
+  const systemPrompt = FILE_REVIEW_SYSTEM_PROMPT;
 
   for (const fileDiff of state.fileDiffs) {
     const filePath = fileDiff.to ?? fileDiff.from ?? 'unknown';
@@ -424,6 +424,7 @@ async function reviewEachFileNode(
     try {
       const response = await llm.invoke([
         new SystemMessage(systemPrompt),
+        new HumanMessage(customSystemPrompt?.trim() || ''),
         new HumanMessage(parts.join('\n')),
       ]);
 
