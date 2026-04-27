@@ -5,12 +5,14 @@
 ## 技术栈
 
 ### 前端
+
 - Next.js 16 + React 19
 - TypeScript
 - Tailwind CSS + shadcn/ui
 - SWR
 
 ### 后端
+
 - NestJS
 - TypeORM + PostgreSQL
 - Redis (缓存)
@@ -79,3 +81,9 @@ pnpm dev:server  # 后端: http://localhost:3001
 pnpm build:client
 pnpm build:server
 ```
+
+修改 schema.prisma（使用 /// 添加描述）。
+
+执行 npx prisma generate（确保后端代码写 webhookUrl 时有中文提示）。
+
+执行 npx prisma migrate dev --name <描述>（正式更新数据库表结构）。

@@ -15,29 +15,42 @@ datasource db {
 // 全局 GitHub 配置（全站唯一一条，id=1）
 // 对应 settings 页面 → GitHub Configuration
 // ─────────────────────────────────────────────
+
+/// 全局 GitHub 配置，全站唯一一条记录（id=1）。
+/// 存储 Personal Access Token、Webhook 密钥、默认分支及忽略路径等信息。
 model GithubSettings {
-  id Int @id @default(autoincrement())
-
-  // Personal Access Token（存储时应加密）
+  /// 自增主键
+  id            Int      @id @default(autoincrement())
+  /// Personal Access Token，用于调用 GitHub API，存储时应加密
   token         String
-  // Webhook 回调密钥
+  /// Webhook 回调密钥，用于验证 GitHub 推送请求的合法性
   webhookSecret String?
-  // 默认目标分支
-  defaultBranch String  @default("main")
-  // 忽略路径（glob 规则，换行分隔）
-  ignoredPaths  String? @db.Text
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  /// 默认目标分支，新建仓库时作为 targetBranch 预填值
+  defaultBranch String   @default("main")
+  /// 忽略路径规则（glob 格式，多条换行分隔），命中的文件跳过 AI 审查
+  ignoredPaths  String?  @db.Text
+  /// Webhook 接收地址，注册到 GitHub 时填写
+  webhookUrl    String
+  /// 记录创建时间
+  createdAt     DateTime @default(now())
+  /// 记录最后更新时间
+  updatedAt     DateTime @updatedAt
 }
 
 // ─────────────────────────────────────────────
 // AI 模型提供商枚举
 // ─────────────────────────────────────────────
+
+/// AI 模型提供商类型。
+/// openai / anthropic / deepseek 为内置提供商，custom 允许配置任意 OpenAI-compatible 接口。
 enum AiProvider {
+  /// OpenAI 官方接口
   openai
+  /// Anthropic Claude 接口
   anthropic
+  /// DeepSeek 接口
   deepseek
+  /// 自定义 OpenAI-compatible 接口，需配合 baseUrl 使用
   custom
 }
 
@@ -45,122 +58,171 @@ enum AiProvider {
 // 全局 AI 模型配置（全站唯一一条，id=1）
 // 对应 settings 页面 → AI Model Configuration
 // ─────────────────────────────────────────────
+
+/// 全局 AI 模型配置，全站唯一一条记录（id=1）。
+/// 存储调用 AI 所需的 provider、apiKey、模型名称及推理参数，支持自定义提供商。
 model AiSettings {
-  id Int @id @default(autoincrement())
-
+  /// 自增主键
+  id           Int        @id @default(autoincrement())
+  /// AI 提供商，决定调用哪套 SDK
   provider     AiProvider @default(anthropic)
-  // API Key
+  /// 对应提供商的 API Key，敏感字段存储时应加密
   apiKey       String?
-  // 模型名称，如 claude-sonnet-4-6
+  /// 模型名称，如 claude-sonnet-4-6、deepseek-chat
   model        String     @default("claude-sonnet-4-6")
-  // 自定义提供商的接入地址
+  /// 自定义提供商的接口基础地址，provider=custom 时必填
   baseUrl      String?
-  // 生成温度，范围 0.0-2.0
+  /// 生成温度，范围 0.0–2.0，越高输出越随机
   temperature  Float      @default(0.2)
-  // 最大 token 数，范围 256-32768
+  /// 单次推理最大输出 token 数，范围 256–32768
   maxTokens    Int        @default(4096)
-  // 系统提示词
+  /// 自定义系统提示词，为空时使用内置审查提示词
   systemPrompt String?    @db.Text
-  // 自定义提供商名称
+  /// 自定义提供商的展示名称，仅 provider=custom 时有效
   customName   String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  /// 记录创建时间
+  createdAt    DateTime   @default(now())
+  /// 记录最后更新时间
+  updatedAt    DateTime   @updatedAt
 }
 
 // ─────────────────────────────────────────────
 // 全局通知配置（全站唯一一条，id=1）
 // 对应 settings 页面 → Notification Settings
 // ─────────────────────────────────────────────
+
+/// 全局通知配置，全站唯一一条记录（id=1）。
+/// 控制邮件通知开关及各审查事件（通过、失败、出错、新待审）的推送策略。
 model NotificationSettings {
-  id Int @id @default(autoincrement())
-
-  emailEnabled Boolean @default(false)
-  email        String?
-
-  // 各事件的通知开关
-  onReviewPassed Boolean @default(true) // PR 质量达标
-  onReviewFailed Boolean @default(true) // PR 存在严重问题
-  onReviewError  Boolean @default(true) // AI/GitHub API 调用失败
-  onNewPending   Boolean @default(false) // 新 PR 进入待审队列
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  /// 自增主键
+  id             Int      @id @default(autoincrement())
+  /// 是否启用邮件通知
+  emailEnabled   Boolean  @default(false)
+  /// 接收通知的邮件地址，emailEnabled=true 时必填
+  email          String?
+  /// PR 审查通过（score 达标）时发送通知
+  onReviewPassed Boolean  @default(true)
+  /// PR 存在严重问题（rejected）时发送通知
+  onReviewFailed Boolean  @default(true)
+  /// AI 或 GitHub API 调用失败时发送通知
+  onReviewError  Boolean  @default(true)
+  /// 新 PR 进入待审队列时发送通知
+  onNewPending   Boolean  @default(false)
+  /// 记录创建时间
+  createdAt      DateTime @default(now())
+  /// 记录最后更新时间
+  updatedAt      DateTime @updatedAt
 }
 
 // ─────────────────────────────────────────────
 // 接入的仓库
 // 对应侧边栏 → Repository Management
 // ─────────────────────────────────────────────
+
+/// 已接入平台的代码仓库。
+/// 每条记录对应一个 GitHub/GitLab 仓库，关联若干 PullRequest 记录，isActive=false 表示已停用但保留历史数据。
 model Repository {
-  id Int @id @default(autoincrement())
-
-  name     String // 仓库名，如 my-repo
-  owner    String // 组织或用户名，如 acme-corp
-  fullName String @unique // owner/name，如 acme-corp/my-repo
-  url      String // HTML 访问地址
-  platform String @default("github") // github | gitlab
-
-  // 平台侧的 webhook id，用于注销时调用删除接口
-  webhookId String?
-
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
+  /// 自增主键
+  id           Int           @id @default(autoincrement())
+  /// 仓库名称，如 my-repo
+  name         String
+  /// 仓库所属组织或用户名，如 acme-corp
+  owner        String
+  /// owner/name 格式的唯一标识，如 acme-corp/my-repo
+  fullName     String        @unique
+  /// 仓库的 HTML 访问地址
+  url          String
+  /// 代码托管平台，github 或 gitlab
+  platform     String        @default("github")
+  /// 平台侧注册的 Webhook ID，注销时用于调用平台删除接口
+  webhookId    String?
+  /// 是否处于活跃状态，false 表示已停用但保留历史数据
+  isActive     Boolean       @default(true)
+  /// 记录创建时间
+  createdAt    DateTime      @default(now())
+  /// 记录最后更新时间
+  updatedAt    DateTime      @updatedAt
+  /// 该仓库下的所有 PR
   pullRequests PullRequest[]
 }
 
 // ─────────────────────────────────────────────
 // PR 审查状态枚举
 // ─────────────────────────────────────────────
+
+/// PR 审查流程状态。
+/// pending → reviewing → passed/rejected/error，error 表示 AI 或 GitHub API 调用异常。
 enum ReviewStatus {
-  pending // 待审查
-  reviewing // 审查中
-  passed // 通过
-  rejected // 拒绝
-  error // 出错
+  /// 已入队，等待 AI 审查
+  pending
+  /// AI 审查进行中
+  reviewing
+  /// 审查完成，质量达标
+  passed
+  /// 审查完成，存在严重问题
+  rejected
+  /// AI 或 GitHub API 调用失败
+  error
 }
 
 // ─────────────────────────────────────────────
 // 触发来源枚举
 // 对应 home 页面 Review Trigger Sources 图表
 // ─────────────────────────────────────────────
+
+/// PR 审查的触发来源。
+/// 用于 Dashboard 统计图表，区分自动触发（Webhook/CI）与手动触发（页面/API）。
 enum TriggerSource {
-  github_webhook // GitHub Webhook 自动触发
-  gitlab_ci // GitLab CI 触发
-  manual // 页面手动触发
-  api // 外部 API 调用
+  /// GitHub Webhook 事件自动触发
+  github_webhook
+  /// GitLab CI 流水线触发
+  gitlab_ci
+  /// 用户在页面上手动触发
+  manual
+  /// 外部系统通过 REST API 触发
+  api
 }
 
 // ─────────────────────────────────────────────
 // 拉取请求
 // 对应 /review/pending、/review/done 页面
 // ─────────────────────────────────────────────
+
+/// 平台记录的 Pull Request。
+/// 同一仓库内 prNumber 唯一，可关联多条 Review 历史（支持重新审查）。
 model PullRequest {
-  id           Int        @id @default(autoincrement())
+  /// 自增主键
+  id           Int           @id @default(autoincrement())
+  /// 所属仓库的外键
   repositoryId Int
-  repository   Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-
-  // PR 基本信息
-  prNumber     Int // 平台侧的 PR 编号
+  /// 关联的仓库记录，仓库删除时级联删除
+  repository   Repository    @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  /// 平台侧的 PR 编号（同一仓库内唯一）
+  prNumber     Int
+  /// PR 标题
   title        String
-  author       String // PR 作者的平台用户名
-  sourceBranch String // 功能分支
-  targetBranch String // 目标分支（如 main）
-  prUrl        String? // PR 的 HTML 地址
-
-  // 审查结果
-  status        ReviewStatus  @default(pending)
-  score         Int? // 综合评分 0-100
+  /// PR 作者的平台用户名
+  author       String
+  /// 源功能分支名称
+  sourceBranch String
+  /// 目标合并分支名称，如 main
+  targetBranch String
+  /// PR 的 HTML 访问地址
+  prUrl        String?
+  /// 当前审查状态
+  status       ReviewStatus  @default(pending)
+  /// AI 综合评分，范围 0–100，审查完成后写入
+  score        Int?
+  /// 本次审查的触发来源
   triggerSource TriggerSource @default(github_webhook)
+  /// 记录创建时间
+  createdAt    DateTime      @default(now())
+  /// 记录最后更新时间
+  updatedAt    DateTime      @updatedAt
+  /// 该 PR 的所有审查记录
+  reviews      Review[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  reviews Review[]
-
-  // 同一仓库内 PR 编号唯一
+  /// 同一仓库内 PR 编号唯一
   @@unique([repositoryId, prNumber])
 }
 
@@ -169,56 +231,74 @@ model PullRequest {
 // 由后台任务定期聚合写入，避免每次实时全表扫描
 // 对应 home 页面所有统计卡片和图表
 // ─────────────────────────────────────────────
+
+/// 仪表盘统计快照，全站唯一一条记录（id=1）。
+/// 由后台任务定期聚合写入，避免每次实时全表扫描；涵盖统计卡片、质量分布及触发来源数据。
 model DashboardSnapshot {
-  id Int @id @default(autoincrement())
-
-  // ── 6 个统计卡片 ──
-  totalReviews   Int   @default(0) // 累计 PR 审查总数
-  monthlyReviews Int   @default(0) // 本月已完成审查数
-  passRate       Float @default(0) // 通过率，0–100
-  avgScore       Float @default(0) // 所有 PR 平均得分，0–100
-  pendingCount   Int   @default(0) // 当前待处理 PR 数
-  repoCount      Int   @default(0) // 已接入的活跃仓库数
-
-  // ── 质量分布图 ──
-  scoreExcellent Int @default(0) // 优秀：90–100
-  scoreGood      Int @default(0) // 良好：75–89
-  scoreFair      Int @default(0) // 一般：60–74
-  scorePoor      Int @default(0) // 较差：< 60
-
-  // ── 触发来源图 ──
-  triggerWebhook  Int @default(0) // GitHub Webhook
-  triggerGitlabCi Int @default(0) // GitLab CI
-  triggerManual   Int @default(0) // 手动触发
-  triggerApi      Int @default(0) // API 调用
-
-  // 快照生成时间，前端可据此显示"数据截至 XX"
-  snapshotAt DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  /// 自增主键
+  id             Int      @id @default(autoincrement())
+  /// 累计 PR 审查总数
+  totalReviews   Int      @default(0)
+  /// 本月已完成的审查数量
+  monthlyReviews Int      @default(0)
+  /// 审查通过率，0–100
+  passRate       Float    @default(0)
+  /// 所有 PR 的平均得分，0–100
+  avgScore       Float    @default(0)
+  /// 当前待处理的 PR 数量
+  pendingCount   Int      @default(0)
+  /// 已接入的活跃仓库数量
+  repoCount      Int      @default(0)
+  /// 质量分布：优秀（90–100 分）的 PR 数
+  scoreExcellent Int      @default(0)
+  /// 质量分布：良好（75–89 分）的 PR 数
+  scoreGood      Int      @default(0)
+  /// 质量分布：一般（60–74 分）的 PR 数
+  scoreFair      Int      @default(0)
+  /// 质量分布：较差（60 分以下）的 PR 数
+  scorePoor      Int      @default(0)
+  /// 触发来源统计：GitHub Webhook 触发次数
+  triggerWebhook  Int     @default(0)
+  /// 触发来源统计：GitLab CI 触发次数
+  triggerGitlabCi Int     @default(0)
+  /// 触发来源统计：手动触发次数
+  triggerManual   Int     @default(0)
+  /// 触发来源统计：API 调用触发次数
+  triggerApi      Int     @default(0)
+  /// 快照生成时间，前端可据此显示"数据截至 XX"
+  snapshotAt     DateTime @default(now())
+  /// 记录最后更新时间
+  updatedAt      DateTime @updatedAt
 }
 
 // ─────────────────────────────────────────────
 // AI 审查结果详情
 // 同一 PR 支持重新审查，保留历史记录
 // ─────────────────────────────────────────────
+
+/// 单次 AI 代码审查的详细结果。
+/// 同一 PR 可关联多条记录（支持重新审查）；aiProvider/aiModel 冗余存储，防止配置变更后历史数据失真。
 model Review {
+  /// 自增主键
   id            Int         @id @default(autoincrement())
+  /// 所属 PR 的外键
   pullRequestId Int
+  /// 关联的 PR 记录，PR 删除时级联删除
   pullRequest   PullRequest @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
-
-  // 本次使用的 AI 信息（冗余存储，防止配置变更后历史丢失）
-  aiProvider String
-  aiModel    String
-
-  // 审查内容（Markdown 格式）
-  content String       @db.Text
-  // 本次评分 0-100
-  score   Int?
-  status  ReviewStatus
-
-  // 出错时的错误信息
-  errorMessage String? @db.Text
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  /// 本次审查使用的 AI 提供商（冗余存储，防止配置变更后历史丢失）
+  aiProvider    String
+  /// 本次审查使用的 AI 模型名称（冗余存储，防止配置变更后历史丢失）
+  aiModel       String
+  /// AI 生成的审查报告，Markdown 格式
+  content       String      @db.Text
+  /// 本次审查的综合评分，范围 0–100
+  score         Int?
+  /// 本次审查的最终状态
+  status        ReviewStatus
+  /// 审查出错时的错误详情，status=error 时写入
+  errorMessage  String?     @db.Text
+  /// 记录创建时间
+  createdAt     DateTime    @default(now())
+  /// 记录最后更新时间
+  updatedAt     DateTime    @updatedAt
 }

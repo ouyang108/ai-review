@@ -7,10 +7,16 @@ import 'dotenv/config';
 import { parseDiff } from '../langchain/parseDiff';
 import { runCodeReview } from '../langchain/review';
 import { PrismaService } from '../prisma/prisma.service';
+import { CreateGithubSettingDto } from './dto/create-githubSetting.dto';
+import { DashboardSnapshotService } from '../dashboard-snapshot/dashboard-snapshot.service';
 
 @Injectable()
 export class GithubService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly dashboardSnapshot: DashboardSnapshotService,
+  ) {}
+
   // 初始化 Octokit 实例，使用环境变量中的 GitHub Token 进行鉴权
   private readonly octokit = new Octokit({
     auth: process.env.GITHUB_TOKEN,
@@ -24,22 +30,60 @@ export class GithubService {
 
     const { action, pull_request, repository } = createGithubDto;
 
-    // 2. 核心判断：只有在“新建 PR”或“更新代码”时才运行 AI Review
-    // opened: 刚创建
-    // synchronize: 开发者又 push 了新代码到该 PR
+    // 只有在"新建 PR"或"更新代码"时才运行 AI Review
     if (action !== 'opened' && action !== 'synchronize') {
       return { data: `Action 是 ${action}，无需 Review` };
     }
 
-    // 3. 再次确认状态必须是 open
     if (pull_request.state !== 'open') {
       return { data: 'PR 已关闭，跳过' };
     }
+
     const owner = repository.owner.login;
     const repo = repository.name;
+    const prNumber = pull_request.number as number;
+
+    // upsert 仓库记录（以 fullName 为唯一键）
+    const repoRecord = await this.prisma.repository.upsert({
+      where: { fullName: `${owner}/${repo}` },
+      update: {},
+      create: {
+        name: repo,
+        owner,
+        fullName: `${owner}/${repo}`,
+        url: `https://github.com/${owner}/${repo}`,
+        platform: 'github',
+      },
+    });
+
+    // upsert PullRequest，先置为 reviewing 状态
+    const prRecord = await this.prisma.pullRequest.upsert({
+      where: {
+        repositoryId_prNumber: { repositoryId: repoRecord.id, prNumber },
+      },
+      update: {
+        status: 'reviewing',
+        title: pull_request.title,
+        author: pull_request.user.login,
+        sourceBranch: pull_request.head.ref,
+        targetBranch: pull_request.base.ref,
+        prUrl: pull_request.html_url ?? null,
+      },
+      create: {
+        repositoryId: repoRecord.id,
+        prNumber,
+        title: pull_request.title,
+        author: pull_request.user.login,
+        sourceBranch: pull_request.head.ref,
+        targetBranch: pull_request.base.ref,
+        prUrl: pull_request.html_url ?? null,
+        status: 'reviewing',
+        triggerSource: 'github_webhook',
+      },
+    });
 
     try {
-      const diff = await this.getPrDiff(owner, repo, pull_request.number);
+      const diff = await this.getPrDiff(owner, repo, prNumber);
       const aiSettings = await this.getAiSettings();
       const result = await runCodeReview({
         fileDiffs: parseDiff(diff),
@@ -59,17 +103,59 @@ export class GithubService {
         },
       });
 
-      // 将 AI review 报告作为评论发布到 PR
-      await this.postPrComment(
-        owner,
-        repo,
-        pull_request.number,
-        result.content,
-      );
+      // score >= 75 视为通过，否则拒绝
+      const reviewStatus = result.score >= 75 ? 'passed' : 'rejected';
+
+      // 并行：更新 PR 状态 + 写入 Review 记录
+      await Promise.all([
+        this.prisma.pullRequest.update({
+          where: { id: prRecord.id },
+          data: { status: reviewStatus, score: result.score },
+        }),
+        this.prisma.review.create({
+          data: {
+            pullRequestId: prRecord.id,
+            aiProvider: aiSettings.provider,
+            aiModel: aiSettings.model,
+            content: result.content,
+            score: result.score,
+            status: reviewStatus,
+          },
+        }),
+      ]);
+
+      // 在报告顶部注明当前使用的 AI 模型，再发布到 PR
+      // const commentBody = `> 🤖 Reviewed by **${aiSettings.provider}** (${aiSettings.model})\n\n${result.content}`;
+      // await this.postPrComment(owner, repo, prNumber, commentBody);
+
+      // 异步刷新仪表盘快照，不阻塞响应
+      this.dashboardSnapshot
+        .refreshSnapshot()
+        .catch((err) => console.error('刷新仪表盘快照失败:', err));
 
       return { data: result };
     } catch (error) {
-      console.error('获取 PR diff 失败:', {
+      // 审查失败时将 PR 状态和 Review 记录均置为 error
+      await Promise.all([
+        this.prisma.pullRequest.update({
+          where: { id: prRecord.id },
+          data: { status: 'error' },
+        }),
+        this.prisma.review.create({
+          data: {
+            pullRequestId: prRecord.id,
+            aiProvider: '',
+            aiModel: '',
+            content: '',
+            status: 'error',
+            errorMessage: error?.message ?? String(error),
+          },
+        }),
+      ]);
+
+      this.dashboardSnapshot.refreshSnapshot().catch(() => {});
+
+      console.error('AI Review 失败:', {
         status: error.status,
         message: error.message,
         url: error.request?.url,
@@ -122,6 +208,36 @@ export class GithubService {
       maxTokens: record?.maxTokens ?? 4096,
       systemPrompt: record?.systemPrompt ?? '',
     };
+  }
+
+  // 保存 GitHub 配置（全站唯一，存在则更新）
+  async config(createGithubSettingDto: CreateGithubSettingDto) {
+    const record = await this.prisma.githubSettings
+      .findFirst()
+      .catch(() => null);
+    if (record) {
+      await this.prisma.githubSettings.update({
+        where: { id: record.id },
+        data: createGithubSettingDto,
+      });
+    } else {
+      await this.prisma.githubSettings.create({
+        data: createGithubSettingDto,
+      });
+    }
+    return { data: '配置成功' };
+  }
+
+  // 查询 GitHub 配置
+  async getConfig() {
+    console.log(213);
+    const record = await this.prisma.githubSettings
+      .findFirst()
+      .catch((error) => {
+        console.error('获取 GitHub 配置失败:', error);
+        return null;
+      });
+    return { data: record };
   }
 
   findAll() {

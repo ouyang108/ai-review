@@ -3,6 +3,7 @@ import { AppModule } from './app.module';
 import { InterceptorExceptionFilter } from './interceptor/exceptionFilter';
 import { InterceptorInterceptor } from './interceptor/interceptor';
 import { ValidationPipe, VersioningType } from '@nestjs/common';
+import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.useGlobalFilters(new InterceptorExceptionFilter());
@@ -28,6 +29,20 @@ async function bootstrap() {
       transform: true,
     }),
   );
+  // 1. 构建 Swagger 配置对象
+  const config = new DocumentBuilder()
+    .setTitle('AI Review API') // 文档标题
+    .setDescription('AI 代码评审系统的后端接口文档') // 文档描述
+    .setVersion('1.0') // 版本号
+    .addTag('Webhooks') // 分类标签
+    // .addBearerAuth() // 如果有 JWT 认证，加上这个
+    .build();
+
+  // 2. 创建文档
+  const document = SwaggerModule.createDocument(app, config);
+
+  // 3. 设置文档挂载路径（例如访问 http://localhost:3000/api-docs）
+  SwaggerModule.setup('api-docs', app, document);
   await app.listen(3002);
 }
 bootstrap()
