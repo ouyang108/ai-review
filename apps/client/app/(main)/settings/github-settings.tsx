@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { Eye, EyeOff, Copy, Check, GitBranch } from 'lucide-react';
 import {
   Card,
@@ -13,57 +12,22 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Field, FieldLabel, FieldDescription, FieldGroup } from '@/components/ui/field';
-
-/** Webhook 回调地址（静态示例，实际应从服务端读取） */
-// const WEBHOOK_URL = "https://your-domain.com/api/webhooks/github"
-
-/** GitHub 配置表单状态 */
-interface GithubFormState {
-  /** GitHub Personal Access Token */
-  token: string;
-  /** Webhook 签名密钥 */
-  webhookSecret: string;
-  /** 默认审查分支 */
-  defaultBranch: string;
-  /** 忽略的文件路径（换行分隔） */
-  ignoredPaths: string;
-  /** Webhook 回调地址 */
-  webhookUrl: string;
-}
+import { useGithubSettings } from './_hooks/use-github-settings';
 
 /** GitHub 设置卡片组件 */
 export function GithubSettings() {
-  const [form, setForm] = useState<GithubFormState>({
-    token: '',
-    webhookSecret: '',
-    defaultBranch: 'main',
-    webhookUrl: '',
-    ignoredPaths: '*.lock\nnode_modules/\ndist/',
-  });
-  /** 控制 Token 明文显示 */
-  const [showToken, setShowToken] = useState(false);
-  /** 控制 Secret 明文显示 */
-  const [showSecret, setShowSecret] = useState(false);
-  /** Webhook URL 复制状态 */
-  const [copied, setCopied] = useState(false);
-  /** 表单保存中状态 */
-  const [saving, setSaving] = useState(false);
-
-  /** 复制 Webhook URL 到剪贴板 */
-  function handleCopyWebhook() {
-    navigator.clipboard.writeText(form.webhookUrl).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }
-
-  /** 模拟保存表单（替换为真实 API 调用） */
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true);
-    await new Promise((r) => setTimeout(r, 800));
-    setSaving(false);
-  }
+  const {
+    form,
+    setForm,
+    showToken,
+    setShowToken,
+    showSecret,
+    setShowSecret,
+    copied,
+    saving,
+    handleCopyWebhook,
+    handleSave,
+  } = useGithubSettings();
 
   return (
     <Card>
@@ -95,7 +59,6 @@ export function GithubSettings() {
                   className="pr-9"
                   autoComplete="off"
                 />
-                {/* 切换 Token 可见性 */}
                 <button
                   type="button"
                   onClick={() => setShowToken((v) => !v)}
@@ -119,7 +82,6 @@ export function GithubSettings() {
                   onChange={(e) => setForm((f) => ({ ...f, webhookUrl: e.target.value }))}
                   className="pr-9 font-mono text-xs text-muted-foreground"
                 />
-                {/* 复制按钮 */}
                 <button
                   type="button"
                   onClick={handleCopyWebhook}
