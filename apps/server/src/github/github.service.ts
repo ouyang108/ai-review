@@ -230,7 +230,6 @@ export class GithubService {
 
   // 查询 GitHub 配置
   async getConfig() {
-    console.log(213);
     const record = await this.prisma.githubSettings
       .findFirst()
       .catch((error) => {

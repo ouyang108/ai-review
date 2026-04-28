@@ -1,8 +1,8 @@
-"use client"
+'use client';
 
-import * as React from "react"
-import Link from "next/link"
-import { cn } from "@/lib/utils"
+import * as React from 'react';
+import Link from 'next/link';
+import { cn } from '@/lib/utils';
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -13,64 +13,64 @@ import {
   SettingsIcon,
   UsersIcon,
   BarChartIcon,
-} from "lucide-react"
+} from 'lucide-react';
 
 /** 子菜单项定义 */
 interface SubMenuItem {
-  label: string
-  href?: string
+  label: string;
+  href?: string;
 }
 
 /** 菜单项定义 */
 interface MenuItem {
-  label: string
-  icon: React.ReactNode
-  href?: string
-  children?: SubMenuItem[]
+  label: string;
+  icon: React.ReactNode;
+  href?: string;
+  children?: SubMenuItem[];
 }
 
 /** SidebarNav 组件 Props */
 interface SidebarNavProps {
-  className?: string
+  className?: string;
 }
 
 /** 默认菜单配置 */
 const MENU_ITEMS: MenuItem[] = [
   {
-    label: "首页",
+    label: '首页',
     icon: <HomeIcon />,
-    href: "/home",
+    href: '/home',
   },
   {
-    label: "代码审查",
+    label: '代码审查',
     icon: <GitPullRequestIcon />,
     children: [
-      { label: "待审查", href: "/review/pending" },
-      { label: "已完成", href: "/review/done" },
-      { label: "我的提交", href: "/review/mine" },
+      { label: '待审查', href: '/review/pending' },
+      { label: '已完成', href: '/review/done' },
+      { label: '我的提交', href: '/review/mine' },
     ],
   },
   {
-    label: "仓库管理",
+    label: '仓库管理',
     icon: <FolderGit2Icon />,
-
+    href: '/repositories',
   },
   {
-    label: "统计报告",
+    label: '统计报告',
     icon: <BarChartIcon />,
-    href: "/reports",
+    href: '/reports',
   },
   {
-    label: "团队成员",
+    label: '团队成员',
     icon: <UsersIcon />,
-    href: "/members",
+    href: '/members',
   },
   {
-    label: "设置",
+    label: '设置',
     icon: <SettingsIcon />,
-    href: "/settings",
+    href: '/settings',
   },
-]
+];
 
 /**
  * 垂直侧边栏导航组件
@@ -78,55 +78,53 @@ const MENU_ITEMS: MenuItem[] = [
  */
 export function SidebarNav({ className }: SidebarNavProps) {
   // 侧边栏整体折叠状态
-  const [collapsed, setCollapsed] = React.useState(false)
+  const [collapsed, setCollapsed] = React.useState(false);
   // 记录哪些子菜单处于展开状态（存储菜单 label）
-  const [openMenus, setOpenMenus] = React.useState<Set<string>>(new Set())
+  const [openMenus, setOpenMenus] = React.useState<Set<string>>(new Set());
 
   /** 切换子菜单展开/收起 */
   const toggleSubMenu = (label: string) => {
     setOpenMenus((prev) => {
-      const next = new Set(prev)
+      const next = new Set(prev);
       if (next.has(label)) {
-        next.delete(label)
+        next.delete(label);
       } else {
-        next.add(label)
+        next.add(label);
       }
-      return next
-    })
-  }
+      return next;
+    });
+  };
 
   /** 折叠侧边栏时同时关闭所有子菜单 */
   const toggleCollapsed = () => {
     setCollapsed((prev) => {
-      if (!prev) setOpenMenus(new Set())
-      return !prev
-    })
-  }
+      if (!prev) setOpenMenus(new Set());
+      return !prev;
+    });
+  };
 
   return (
     <aside
       data-slot="sidebar-nav"
       className={cn(
         // 基础布局：纵向 flex，高度撑满，带边框和过渡动画
-        "relative flex flex-col h-full border-r border-border bg-sidebar text-sidebar-foreground transition-all duration-300",
-        collapsed ? "w-14" : "w-56",
+        'relative flex flex-col h-full border-r border-border bg-sidebar text-sidebar-foreground transition-all duration-300',
+        collapsed ? 'w-14' : 'w-56',
         className
       )}
     >
       {/* 顶部 Logo / 标题区域 */}
       <div
         className={cn(
-          "flex h-12 items-center border-b border-border px-3",
-          collapsed ? "justify-center" : "justify-between"
+          'flex h-12 items-center border-b border-border px-3',
+          collapsed ? 'justify-center' : 'justify-between'
         )}
       >
-        {!collapsed && (
-          <span className="text-sm font-semibold truncate">AI Review</span>
-        )}
+        {!collapsed && <span className="text-sm font-semibold truncate">AI Review</span>}
         {/* 折叠/展开切换按钮 */}
         <button
           onClick={toggleCollapsed}
-          aria-label={collapsed ? "展开菜单" : "折叠菜单"}
+          aria-label={collapsed ? '展开菜单' : '折叠菜单'}
           className="flex cursor-pointer size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
         >
           {collapsed ? (
@@ -141,8 +139,8 @@ export function SidebarNav({ className }: SidebarNavProps) {
       <nav className="flex-1 overflow-y-auto overflow-x-hidden py-2">
         <ul className="flex flex-col gap-0.5 px-2">
           {MENU_ITEMS.map((item) => {
-            const hasChildren = !!item.children?.length
-            const isOpen = openMenus.has(item.label)
+            const hasChildren = !!item.children?.length;
+            const isOpen = openMenus.has(item.label);
 
             /** 菜单项内容（图标 + 文字 + 箭头） */
             const itemContent = (
@@ -156,23 +154,23 @@ export function SidebarNav({ className }: SidebarNavProps) {
                     {hasChildren && (
                       <ChevronDownIcon
                         className={cn(
-                          "size-3.5 shrink-0 text-muted-foreground transition-transform duration-200",
-                          isOpen && "rotate-180"
+                          'size-3.5 shrink-0 text-muted-foreground transition-transform duration-200',
+                          isOpen && 'rotate-180'
                         )}
                       />
                     )}
                   </>
                 )}
               </>
-            )
+            );
 
             /** 共用样式 */
             const itemCls = cn(
-              "group flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm font-medium",
-              "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-              "transition-colors outline-none",
-              collapsed && "justify-center px-0"
-            )
+              'group flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm font-medium',
+              'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+              'transition-colors outline-none',
+              collapsed && 'justify-center px-0'
+            );
 
             return (
               <li key={item.label}>
@@ -188,7 +186,7 @@ export function SidebarNav({ className }: SidebarNavProps) {
                   </button>
                 ) : (
                   <Link
-                    href={item.href ?? "/"}
+                    href={item.href ?? '/'}
                     title={collapsed ? item.label : undefined}
                     className={itemCls}
                   >
@@ -202,11 +200,11 @@ export function SidebarNav({ className }: SidebarNavProps) {
                     {item.children!.map((child) => (
                       <li key={child.label}>
                         <Link
-                          href={child.href ?? "/"}
+                          href={child.href ?? '/'}
                           className={cn(
-                            "flex w-full items-center rounded-md px-2 py-1 text-sm",
-                            "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                            "transition-colors outline-none"
+                            'flex w-full items-center rounded-md px-2 py-1 text-sm',
+                            'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+                            'transition-colors outline-none'
                           )}
                         >
                           {child.label}
@@ -216,10 +214,10 @@ export function SidebarNav({ className }: SidebarNavProps) {
                   </ul>
                 )}
               </li>
-            )
+            );
           })}
         </ul>
       </nav>
     </aside>
-  )
+  );
 }

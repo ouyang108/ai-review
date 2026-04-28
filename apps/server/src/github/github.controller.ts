@@ -235,7 +235,6 @@ export class GithubController {
     ...dataWrapSchema({ ...githubSettingsSchema, nullable: true }),
   })
   getConfig() {
-    console.log(111111111);
     return this.githubService.getConfig();
   }
 }
